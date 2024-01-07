@@ -1,0 +1,79 @@
+
+{{- if .Values.dags.filestore.enabled }}
+
+{{- $fullName := include "airflow.fullname" . -}}
+
+apiVersion: v1
+kind: PersistentVolume
+
+# prerequisite : add  ClusterRolepermission "persistentvolumes" to saas-provider-sa
+# file to update : kubeplue/kubeplus-saas-provider-role.yaml
+
+metadata:
+  name: fileserver-{{ $fullName }}
+  # namespace: default
+  annotations:
+    pv.kubernetes.io/provisioned-by: filestore.csi.storage.gke.io
+  labels:
+    app: {{ include "airflow.labels.app" . }}
+    chart: {{ include "airflow.labels.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+
+spec:
+  # storageClassName: filestore-sc
+  storageClassName: standard-rwx
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteMany
+
+  # https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+  # persistentVolumeReclaimPolicy must be set to Retain (vs Delete)
+  # to avoid volume deletion when the pod is destroyed
+  persistentVolumeReclaimPolicy: Retain     
+  
+  volumeMode: Filesystem
+  csi:
+    driver: filestore.csi.storage.gke.io
+
+    # TODO : manage the PV as infra, do not define this PV in helm chart
+    # Modify this to use the zone, filestore instance and share name.
+
+    # DEV
+    volumeHandle: "modeInstance/europe-west1-b/orange-fs-lab-dataset/share1"
+    volumeAttributes:
+      ip: 10.77.59.122
+      volume: share1
+
+    # PILOT
+    # volumeHandle: "modeInstance/europe-west1-b/orange-fs-pilot-dataset/share1"
+    # volumeAttributes:
+      # ip: 10.29.150.162
+      # volume: share1
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fileserver-{{ $fullName }}
+  # namespace: default
+  labels:
+    app: {{ include "airflow.labels.app" . }}
+    chart: {{ include "airflow.labels.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  # storageClassName: filestore-sc
+  storageClassName: standard-rwx
+  volumeName: fileserver-{{ $fullName }}
+  resources:
+    requests:
+      #min Standard: 1Ti, Enterpise: 2.5Ti
+      storage: 1Ti  
+      # storage: 10Gi
+
+{{- end }}      

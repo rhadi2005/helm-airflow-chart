@@ -1,0 +1,150 @@
+
+# kubectl apply -f 4-k8s-spark340-pod.yaml
+
+# kubectl exec -it $(kubectl get pod | grep cloudmgt-api-spark340 | awk '{print $1}') -- bash
+# export test="$(kubectl get pod | grep cloudmgt-api-spark340 | awk '{print $1}' | awk 'NR==1')" && echo $test
+
+{{- $fullName := include "airflow.fullname" . -}}
+
+{{- $podNodeSelector := include "airflow.podNodeSelector" (dict "Release" .Release "Values" .Values "nodeSelector" .Values.web.nodeSelector) }}
+{{- $podAffinity := include "airflow.podAffinity" (dict "Release" .Release "Values" .Values "affinity" .Values.web.affinity) }}
+{{- $podTolerations := include "airflow.podTolerations" (dict "Release" .Release "Values" .Values "tolerations" .Values.web.tolerations) }}
+{{- $podSecurityContext := include "airflow.podSecurityContext" (dict "Release" .Release "Values" .Values "securityContext" .Values.web.securityContext) }}
+{{- $extraPipPackages := concat .Values.airflow.extraPipPackages .Values.web.extraPipPackages }}
+{{- $extraVolumeMounts := .Values.web.extraVolumeMounts }}
+{{- $volumeMounts := include "airflow.volumeMounts" (dict "Release" .Release "Values" .Values "extraPipPackages" $extraPipPackages "extraVolumeMounts" $extraVolumeMounts) }}
+{{- $extraVolumes := .Values.web.extraVolumes }}
+{{- $volumes := include "airflow.volumes" (dict "Release" .Release "Values" .Values "extraPipPackages" $extraPipPackages "extraVolumes" $extraVolumes "extraVolumeMounts" $extraVolumeMounts) }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-spark340
+  # namespace: default
+
+  {{- if .Values.web.annotations }}
+  annotations:
+    {{- toYaml .Values.web.annotations | nindent 4 }}
+  {{- end }}
+
+  labels:
+    name: {{ $fullName }}-spark340
+
+    app: {{ include "airflow.labels.app" . }}
+    component: web
+    chart: {{ include "airflow.labels.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    {{- if .Values.web.labels }}
+    {{- toYaml .Values.web.labels | nindent 4 }}
+    {{- end }}
+
+spec:
+  selector:
+    matchLabels:
+      run: {{ $fullName }}-spark340
+
+  replicas: 1  
+
+  template:
+    metadata:
+      labels:
+        run: {{ $fullName }}-spark340
+
+    spec:
+      serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+      {{- if $podSecurityContext }}
+      securityContext:
+        {{- $podSecurityContext | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      restartPolicy: Always
+      {{- if $podNodeSelector }}
+      nodeSelector:
+        {{- $podNodeSelector | nindent 8 }}
+      {{- end }}
+
+      # initContainers:
+      # - name: init-certs
+      #   image: rhadi2005/cloudmgt-py-k8s:latest
+      #   command: 
+      #     - "sh"
+      #     - "-c"
+      #     - |
+      #       kubectl get secret example-secret -o jsonpath='{.data.example\\.crt}' | base64 --decode > /etc/certs/example.crt
+      #       keytool -importcert -alias myCertAlias -file /etc/certs/example.crt -keystore /opt/java/openjdk/lib/security/cacerts -storepass changeit -noprompt
+      #   volumeMounts:
+      #   - name: secret-volume
+      #     mountPath: "/etc/certs"
+
+      containers:
+      - name: airflow-spark340
+        image: rhadi2005/cloudmgt-py-k8s:latest
+
+        imagePullPolicy: Always
+        # imagePullPolicy: IfNotPresent
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100M
+
+        ports:
+          - name: api-cost
+            containerPort: 8051
+          - name: api-network
+            containerPort: 8052
+
+        env:
+          # - name: PYTHONPATH
+          #   value: "/shared/home/rahmat/workspace/eu-cloudcost/cloud-management/data-platform"
+          # - name: SPARK_MASTER
+          #   # value: "spark://cloudmgt-master-svc:7077"
+          #   # value: "local[*]"
+          #   value: "k8s://http://10.10.1.2:8001"
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+
+        command: ["sh", "-c", "while true; do sleep 1; done"]
+        # command:
+        # - sh
+        # - -c
+        # - >
+        #   sudo chmod -R 777 /opt/java/openjdk/lib/security &&
+        #   keytool -importcert -alias myCertAlias -storepass changeit -noprompt -file /etc/certs/example.crt -keystore /opt/java/openjdk/lib/security/cacerts ;
+        #   sleep infinity
+        volumeMounts:
+          # - name: fileserver-default
+          #   mountPath: /shared # the shared directory
+          - name: nfs-vol
+            mountPath: /shared-nfs-airflow
+            subPath: airflow/dags
+          - name: nfs-default-vol
+            mountPath: /shared-nfs
+            # subPath: saas/client1
+            
+          # - name: secret-volume
+          #   mountPath: "/etc/certs"
+
+
+      volumes:
+      # - name: fileserver-default
+      #   persistentVolumeClaim:
+      #     claimName: fileserver-default
+      - name: nfs-vol
+        nfs:
+          server: 10.10.1.2
+          path: /shared-nfs
+      - name: nfs-default-vol
+        nfs:
+          server: 10.10.1.2
+          path: /shared-nfs
+      #   persistentVolumeClaim:
+      #     claimName: nfs-default-pvc
+
+      # - name: secret-volume
+      #   secret:
+      #     secretName: example-secret    
+
